@@ -262,90 +262,162 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildComunidadTab(BuildContext context) {
-    if (_hilos.isEmpty && _isLoading) return const Center(child: CircularProgressIndicator());
-    return RefreshIndicator(
-      onRefresh: _refrescarFeed, color: navyNoa,
-      child: ListView.builder(
-        controller: _scrollController,
-        itemCount: _hilos.length + (_hasMore ? 1 : 0),
+  return StreamBuilder<QuerySnapshot>(
+    stream: FirebaseFirestore.instance
+        .collection('hilos')
+        .orderBy('fecha', descending: true)
+        .snapshots(),
+    builder: (context, snapshot) {
+      if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+      
+      final docs = snapshot.data!.docs;
+      
+      return ListView.builder(
+        itemCount: docs.length,
         itemBuilder: (context, index) {
-          if (index == _hilos.length) return Padding(padding: const EdgeInsets.all(20), child: Center(child: CircularProgressIndicator(color: matteGold)));
-          var data = _hilos[index].data() as Map<String, dynamic>;
-          return _buildHiloItem(context, data, _hilos[index].id);
+          final data = docs[index].data() as Map<String, dynamic>;
+          final docId = docs[index].id;
+          return _buildHiloItem(context, data, docId);
         },
-      ),
-    );
-  }
+      );
+    },
+  );
+
+}
 
   Widget _buildHiloItem(BuildContext context, Map<String, dynamic> data, String docId) {
-    final user = FirebaseAuth.instance.currentUser;
-    List likedBy = data['likedBy'] ?? [];
-    bool isLiked = user != null && likedBy.contains(user.uid);
-    String autorId = data['autorId'] ?? '';
+  final user = FirebaseAuth.instance.currentUser;
+  List likedBy = data['likedBy'] ?? [];
+  bool isLiked = user != null && likedBy.contains(user.uid);
+  String autorId = data['autorId'] ?? '';
 
-    return StreamBuilder<DocumentSnapshot>(
-      stream: FirebaseFirestore.instance.collection('usuarios').doc(autorId).snapshots(),
-      builder: (context, userSnap) {
-        var userMap = userSnap.data?.data() as Map<String, dynamic>? ?? {};
-        String foto = userMap['fotoPerfilUrl'] ?? userMap['fotoBase64'] ?? '';
-        String nombreActual = userMap['nombre'] ?? data['autorNombre'] ?? "Usuario";
-        
-        return Container(
-          padding: const EdgeInsets.all(15),
-          decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Colors.black12, width: 0.5))),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              GestureDetector(
-                onTap: () => _irAlPerfil(context, autorId),
-                child: CircleAvatar(
-                  radius: 18, backgroundColor: navyNoa,
-                  backgroundImage: foto.isNotEmpty ? _obtenerImagenInteligente(foto) : null,
-                  child: foto.isEmpty ? const Icon(Icons.person, size: 20, color: Colors.white) : null,
-                ),
+  return StreamBuilder<DocumentSnapshot>(
+    stream: FirebaseFirestore.instance.collection('usuarios').doc(autorId).snapshots(),
+    builder: (context, userSnap) {
+      var userMap = userSnap.data?.data() as Map<String, dynamic>? ?? {};
+      String foto = userMap['fotoPerfilUrl'] ?? userMap['fotoBase64'] ?? '';
+      String nombreActual = userMap['nombre'] ?? data['autorNombre'] ?? "Usuario";
+      
+      return Container(
+        padding: const EdgeInsets.all(15),
+        decoration: const BoxDecoration(
+          border: Border(bottom: BorderSide(color: Colors.black12, width: 0.5))
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // FOTO DE PERFIL
+            GestureDetector(
+              onTap: () => _irAlPerfil(context, autorId),
+              child: CircleAvatar(
+                radius: 18, 
+                backgroundColor: navyNoa,
+                backgroundImage: foto.isNotEmpty ? _obtenerImagenInteligente(foto) : null,
+                child: foto.isEmpty ? const Icon(Icons.person, size: 20, color: Colors.white) : null,
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    GestureDetector(onTap: () => _irAlPerfil(context, autorId), child: Text(nombreActual, style: const TextStyle(fontWeight: FontWeight.bold))),
-                    const SizedBox(height: 5),
-                    Text(data['texto'] ?? ""),
-                    if (data['imagenAdjunta'] != null && data['imagenAdjunta'].isNotEmpty)
-                      Padding(padding: const EdgeInsets.only(top: 10), child: ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.memory(base64Decode(data['imagenAdjunta'])))),
-                    const SizedBox(height: 12),
-                    
-                    Row(children: [
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  GestureDetector(
+                    onTap: () => _irAlPerfil(context, autorId), 
+                    child: Text(nombreActual, style: const TextStyle(fontWeight: FontWeight.bold))
+                  ),
+                  const SizedBox(height: 5),
+                  Text(data['texto'] ?? ""),
+                  
+                  // IMAGEN (Protegida para que no de pantalla roja)
+                  if (data['imagenAdjunta'] != null && data['imagenAdjunta'].toString().isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 10), 
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8), 
+                        child: Builder(
+                          builder: (context) {
+                            try {
+                              return Image.memory(
+                                base64Decode(data['imagenAdjunta']),
+                                fit: BoxFit.cover,
+                                width: double.infinity,
+                                errorBuilder: (context, error, stackTrace) => 
+                                    const Icon(Icons.broken_image, color: Colors.grey),
+                              );
+                            } catch (e) {
+                              return const SizedBox.shrink();
+                            }
+                          }
+                        )
+                      )
+                    ),
+                  
+                  const SizedBox(height: 12),
+                  
+                  // FILA DE ACCIONES (ESPACIOS IGUALES, NADA ALEJADO)
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.start,
+                    children: [
+                      // LIKE
                       GestureDetector(
                         onTap: () async {
+                          if (user == null) return;
                           try {
-                            await FirebaseFirestore.instance.collection('hilos').doc(docId).update({ 'likedBy': isLiked ? FieldValue.arrayRemove([user.uid]) : FieldValue.arrayUnion([user?.uid]) });
+                            await FirebaseFirestore.instance.collection('hilos').doc(docId).update({ 
+                              'likedBy': isLiked 
+                                  ? FieldValue.arrayRemove([user.uid]) 
+                                  : FieldValue.arrayUnion([user.uid]) 
+                            });
                           } catch (e) {
                             debugPrint("Error: $e");
                           }
                         }, 
-                        child: Row(children: [Icon(isLiked ? Icons.favorite : Icons.favorite_border, color: isLiked ? Colors.red : Colors.grey, size: 20), const SizedBox(width: 5), Text("${likedBy.length}", style: const TextStyle(fontSize: 12, color: Colors.grey))])
+                        child: Row(
+                          children: [
+                            Icon(isLiked ? Icons.favorite : Icons.favorite_border, 
+                                 color: isLiked ? Colors.red : Colors.grey, size: 20),
+                            const SizedBox(width: 5),
+                            Text("${likedBy.length}", style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                          ],
+                        ),
                       ),
-                      const SizedBox(width: 25),
-                      GestureDetector(onTap: () => _mostrarComentarios(context, docId, navyNoa), child: const Icon(Icons.chat_bubble_outline, size: 20, color: Colors.grey)),
-                      const SizedBox(width: 25),
-                      GestureDetector(onTap: () => Share.share("${data['texto']}\n\nEscrito por: $nombreActual en NOA"), child: const Icon(Icons.share_outlined, size: 20, color: Colors.grey)),
-                      const SizedBox(width: 25),
+                      
+                      const SizedBox(width: 30), // Espacio uniforme
+
+                      // COMENTARIO
+                      GestureDetector(
+                        onTap: () => _mostrarComentarios(context, docId, navyNoa), 
+                        child: const Icon(Icons.chat_bubble_outline, size: 20, color: Colors.grey)
+                      ),
+                      
+                      const SizedBox(width: 30), // Espacio uniforme
+
+                      // COMPARTIR
+                      GestureDetector(
+                        onTap: () => Share.share("${data['texto']}\n\nEscrito por: $nombreActual en NOA"), 
+                        child: const Icon(Icons.share_outlined, size: 20, color: Colors.grey)
+                      ),
+                      
+                      const SizedBox(width: 30), // Espacio uniforme (Donar ya no está lejos)
+
+                      // DONAR (PROPINA)
                       GestureDetector(
                         onTap: () => _mostrarDialogoPropina(context, autorId, nombreActual, docId), 
                         child: const Icon(Icons.volunteer_activism_outlined, size: 20, color: Colors.orange)
                       ),
-                    ])
-                  ],
-                ),
-              )
-            ],
-          ),
-        );
-      }
-    );
-  }
+                    ],
+                  )
+                ],
+              ),
+            )
+          ],
+        ),
+      );
+    }
+  );
+
+}
+  
 
   // OPTIMIZACIÓN: Comentarios Anti-Spam
   void _mostrarComentarios(BuildContext context, String docId, Color colorPrimario) {
