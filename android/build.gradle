@@ -1,12 +1,12 @@
 buildscript {
-    ext.kotlin_version = '1.9.22'
+    ext.kotlin_version = '2.1.0'
     repositories {
         google()
         mavenCentral()
     }
 
     dependencies {
-        classpath 'com.android.tools.build:gradle:8.3.2'
+        classpath 'com.android.tools.build:gradle:8.6.0'
         classpath 'com.google.gms:google-services:4.4.1'
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
     }
@@ -29,14 +29,4 @@ subprojects {
 
 tasks.register("clean", Delete) {
     delete rootProject.buildDir
-}
-
-// LA SOLUCIÓN DEFINITIVA PARA EL ERROR DE JLINK
-// Obliga a todos los plugins (como Firebase) a usar el SDK 35 de forma segura
-subprojects {
-    project.plugins.withId('com.android.library') {
-        project.android {
-            compileSdk 35
-        }
-    }
 }
