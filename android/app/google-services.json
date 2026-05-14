@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "498639080180",
+    "project_id": "livro-b0d41",
+    "storage_bucket": "livro-b0d41.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:498639080180:android:1f9584446cd3df08832ca1",
+        "android_client_info": {
+          "package_name": "com.example.antologia_nueva"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCzZjztm0obK9AQ1nEj6k4gMNFM9IJdat8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
