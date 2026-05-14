@@ -1,6 +1,6 @@
 plugins {
     id "com.android.application"
-    id 'com.google.gms.google-services'
+    id "com.google.gms.google-services"
     id "kotlin-android"
     id "dev.flutter.flutter-gradle-plugin"
 }
@@ -25,9 +25,7 @@ if (flutterVersionName == null) {
 
 android {
     namespace "com.example.antologia_nueva"
-    
-    // FIJAMOS LA VERSIÓN 35 (Estable para tu PC)
-    compileSdk = 35
+    compileSdk 34
 
     ndkVersion flutter.ndkVersion
 
@@ -46,13 +44,10 @@ android {
 
     defaultConfig {
         applicationId "com.example.antologia_nueva"
-        
-        // FIJAMOS EL MÍNIMO EN 23 (Para que Firebase no moleste) y TARGET EN 33
-        minSdk = 23
-        targetSdk = 35
-        
-        versionCode = flutterVersionCode.toInteger()
-        versionName = flutterVersionName
+        minSdk 23
+        targetSdk 34
+        versionCode flutterVersionCode.toInteger()
+        versionName flutterVersionName
     }
 
     buildTypes {
@@ -66,4 +61,8 @@ flutter {
     source '../..'
 }
 
-dependencies {}
+dependencies {
+    // Esto asegura que Firebase use versiones que no choquen entre sí
+    implementation platform('com.google.firebase:firebase-bom:33.1.0')
+    implementation 'com.google.firebase:firebase-analytics'
+}
