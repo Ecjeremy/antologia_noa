@@ -97,7 +97,7 @@ class _WalletScreenState extends State<WalletScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("¡Recarga exitosa!"), backgroundColor: tealNoa),
+          SnackBar(content: const Text("¡Recarga exitosa!"), backgroundColor: tealNoa),
         );
       }
     } catch (e) {

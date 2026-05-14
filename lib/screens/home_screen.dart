@@ -320,7 +320,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       GestureDetector(
                         onTap: () async {
                           try {
-                            await FirebaseFirestore.instance.collection('hilos').doc(docId).update({ 'likedBy': isLiked ? FieldValue.arrayRemove([user?.uid]) : FieldValue.arrayUnion([user?.uid]) });
+                            await FirebaseFirestore.instance.collection('hilos').doc(docId).update({ 'likedBy': isLiked ? FieldValue.arrayRemove([user.uid]) : FieldValue.arrayUnion([user?.uid]) });
                           } catch (e) {
                             debugPrint("Error: $e");
                           }

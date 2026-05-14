@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="gcm_defaultSenderId" translatable="false">498639080180</string>
-    <string name="google_api_key" translatable="false">AIzaSyCzZjztm0obK9AQ1nEj6k4gMNFM9IJdat8</string>
-    <string name="google_app_id" translatable="false">1:498639080180:android:1f9584446cd3df08832ca1</string>
-    <string name="google_crash_reporting_api_key" translatable="false">AIzaSyCzZjztm0obK9AQ1nEj6k4gMNFM9IJdat8</string>
-    <string name="google_storage_bucket" translatable="false">livro-b0d41.firebasestorage.app</string>
-    <string name="project_id" translatable="false">livro-b0d41</string>
-</resources>

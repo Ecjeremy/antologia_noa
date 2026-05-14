@@ -200,7 +200,7 @@ class _CreateThreadScreenState extends State<CreateThreadScreen> {
                         title: Text(u['nombre'] ?? "", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                         onTap: () {
                           String text = _textoController.text; int lastAt = text.lastIndexOf("@");
-                          String nuevoTexto = text.substring(0, lastAt) + "@${u['nombre']} ";
+                          String nuevoTexto = "${text.substring(0, lastAt)}@${u['nombre']} ";
                           _textoController.text = nuevoTexto;
                           _textoController.selection = TextSelection.fromPosition(TextPosition(offset: nuevoTexto.length));
                           setState(() => _mostrandoMenciones = false);

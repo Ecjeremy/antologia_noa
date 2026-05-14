@@ -356,7 +356,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     Row(
                       children: [
                         GestureDetector(
-                          onTap: () => FirebaseFirestore.instance.collection('hilos').doc(docId).update({ 'likedBy': isLiked ? FieldValue.arrayRemove([user?.uid]) : FieldValue.arrayUnion([user?.uid]) }),
+                          onTap: () => FirebaseFirestore.instance.collection('hilos').doc(docId).update({ 'likedBy': isLiked ? FieldValue.arrayRemove([user.uid]) : FieldValue.arrayUnion([user?.uid]) }),
                           child: Row(children: [Icon(isLiked ? Icons.favorite : Icons.favorite_border, size: 18, color: isLiked ? Colors.red : Colors.grey), const SizedBox(width: 5), Text("${likedBy.length}", style: const TextStyle(color: Colors.grey, fontSize: 12))]),
                         ),
                         const SizedBox(width: 25),

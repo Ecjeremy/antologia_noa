@@ -26,7 +26,7 @@ class _PublishBookScreenState extends State<PublishBookScreen> {
   final TextEditingController _sinopsisController = TextEditingController();
   final TextEditingController _coinsController = TextEditingController(text: "150");
 
-  List<Map<String, String>> _capitulos = [
+  final List<Map<String, String>> _capitulos = [
     {"titulo": "Capítulo 1", "contenido": ""}
   ];
 
