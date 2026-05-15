@@ -353,42 +353,41 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     const SizedBox(height: 4),
                     if (data['texto'] != null) Text(data['texto'], style: const TextStyle(fontSize: 14, height: 1.3)),
                     // ESTO REEMPLAZA TU LÍNEA 230 EN EL PERFIL
-                    if (data['imagenAdjunta'] != null && data['imagenAdjunta'].toString().isNotEmpty)
+                    if (data['imagenAdjunta'] != null && data['imagenAdjunta'].isNotEmpty)
                       Padding(
-                        padding: const EdgeInsets.only(top: 10),
+                        padding: const EdgeInsets.only(top: 10), 
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(10),
                           child: Image(
-                            image: _obtenerImagenInteligente(data['imagenAdjunta'].toString()),
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+                            image: _obtenerImagenInteligente(data['imagenAdjunta']), 
+                            fit: BoxFit.cover
                           ),
                         ),
                       ),
                     const SizedBox(height: 12),
                     // Busca la Row de iconos dentro de _buildThreadsItem y asegúrate que se vea así:
-                  Row(
-                    children: [
-                      GestureDetector(
-                        onTap: () => FirebaseFirestore.instance.collection('hilos').doc(docId).update({ 'likedBy': isLiked ? FieldValue.arrayRemove([user?.uid]) : FieldValue.arrayUnion([user?.uid]) }),
-                        child: Row(children: [Icon(isLiked ? Icons.favorite : Icons.favorite_border, size: 18, color: isLiked ? Colors.red : Colors.grey), const SizedBox(width: 5), Text("${likedBy.length}", style: const TextStyle(color: Colors.grey, fontSize: 12))]),
-                      ),
-                      const SizedBox(width: 25),
-                      GestureDetector(onTap: () => _mostrarComentarios(context, docId, navyNoa), child: const Icon(Icons.mode_comment_outlined, size: 18, color: Colors.grey)),
-                      const SizedBox(width: 25),
-                      GestureDetector(onTap: () => Share.share("${data['texto']}\n\nEscrito por: $nombreActual en NOA"), child: const Icon(Icons.share_outlined, size: 18, color: Colors.grey)),
-                      const SizedBox(width: 25),
-                      GestureDetector(
-                        onTap: () => _mostrarDialogoPropina(context, autorId, nombreActual, docId), 
-                        child: const Icon(Icons.volunteer_activism_outlined, size: 18, color: Colors.orange)
-                      ),
-                      const SizedBox(width: 25), // Esto empuja el tacho de basura al final a la derecha
-                      GestureDetector(
-                        onTap: () => _mostrarConfirmacionEliminar(docId),
-                        child: const Icon(Icons.delete_outline, size: 18, color: Colors.redAccent),
-                      ),
-                    ],
-                  ),
+                    Row(
+                      children: [
+                        GestureDetector(
+                          onTap: () => FirebaseFirestore.instance.collection('hilos').doc(docId).update({ 'likedBy': isLiked ? FieldValue.arrayRemove([user?.uid]) : FieldValue.arrayUnion([user?.uid]) }),
+                          child: Row(children: [Icon(isLiked ? Icons.favorite : Icons.favorite_border, size: 18, color: isLiked ? Colors.red : Colors.grey), const SizedBox(width: 5), Text("${likedBy.length}", style: const TextStyle(color: Colors.grey, fontSize: 12))]),
+                        ),
+                        const SizedBox(width: 25),
+                        GestureDetector(onTap: () => _mostrarComentarios(context, docId, navyNoa), child: const Icon(Icons.mode_comment_outlined, size: 18, color: Colors.grey)),
+                        const SizedBox(width: 25),
+                        GestureDetector(onTap: () => Share.share("${data['texto']}\n\nEscrito por: $nombreActual en NOA"), child: const Icon(Icons.share_outlined, size: 18, color: Colors.grey)),
+                        const SizedBox(width: 25),
+                        GestureDetector(
+                          onTap: () => _mostrarDialogoPropina(context, autorId, nombreActual, docId), 
+                          child: const Icon(Icons.volunteer_activism_outlined, size: 18, color: Colors.orange)
+                        ),
+                        const SizedBox(width: 25), // Esto empuja el tacho de basura al final a la derecha
+                        GestureDetector(
+                          onTap: () => _mostrarConfirmacionEliminar(docId),
+                          child: const Icon(Icons.delete_outline, size: 18, color: Colors.redAccent),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),

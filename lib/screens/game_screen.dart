@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter_windowmanager/flutter_windowmanager.dart'; // PAQUETE NUEVO
+// PAQUETE NUEVO
 import 'dart:async';
 
 class GameScreen extends StatefulWidget {
@@ -35,17 +35,12 @@ class _GameScreenState extends State<GameScreen> {
   @override
   void initState() {
     super.initState();
-    _protegerPantalla();
-  }
-
-  // --- SEGURIDAD: ANTI-SCREENSHOT ---
-  Future<void> _protegerPantalla() async {
-    await FlutterWindowManager.addFlags(FlutterWindowManager.FLAG_SECURE);
+    // La protección de pantalla ya no se llama aquí, 
+    // ahora funciona automáticamente desde MainActivity.kt
   }
 
   @override
   void dispose() {
-    FlutterWindowManager.clearFlags(FlutterWindowManager.FLAG_SECURE);
     _countdownTimer?.cancel();
     _writingController.dispose();
     super.dispose();

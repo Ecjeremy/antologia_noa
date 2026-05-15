@@ -333,13 +333,12 @@ class _HomeScreenState extends State<HomeScreen> {
                         Padding(
                           padding: const EdgeInsets.only(top: 10), 
                           child: ClipRRect(
-                            borderRadius: BorderRadius.circular(8), 
+                            borderRadius: BorderRadius.circular(10),
                             child: Image(
-                              image: _obtenerImagenInteligente(data['imagenAdjunta'].toString()), 
-                              fit: BoxFit.cover,
-                              width: double.infinity,
-                            )
-                          )
+                              image: _obtenerImagenInteligente(data['imagenAdjunta']), 
+                              fit: BoxFit.cover
+                            ),
+                          ),
                         ),
                     // -------------------------------------------------------------
 

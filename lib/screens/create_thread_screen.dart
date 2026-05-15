@@ -120,47 +120,70 @@ class _CreateThreadScreenState extends State<CreateThreadScreen> {
 
   setState(() => _isPublishing = true);
 
-  try {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) throw "Debes iniciar sesión";
+  Future<void> _publicarHilo() async {
+    final String texto = _textoController.text.trim();
+    final bool tieneImagen = _imagenAdjuntaFile != null || _webImage != null;
 
-    String imagenUrlFinal = "";
+    print("DEBUG: ¿Hay texto?: ${texto.isNotEmpty}");
+    print("DEBUG: ¿Hay archivo de imagen?: $tieneImagen");
 
-    // 3. PROCESO DE SUBIDA
-    if (tieneImagen) {
-      print("DEBUG: Iniciando subida a Storage...");
-      
-      // Creamos un nombre único para la foto
-      String fileName = "hilo_${user.uid}_${DateTime.now().millisecondsSinceEpoch}.jpg";
-      Reference storageRef = FirebaseStorage.instance.ref().child('hilos').child(fileName);
-      
-      // Subida con timeout de 1 minuto por si el internet de Zaruma está lento
-      UploadTask uploadTask = storageRef.putFile(_imagenAdjuntaFile!);
-      TaskSnapshot snapshot = await uploadTask.timeout(const Duration(seconds: 60));
-      
-      imagenUrlFinal = await snapshot.ref.getDownloadURL();
-      print("DEBUG: Imagen subida con éxito: $imagenUrlFinal");
+    if (texto.isEmpty && !tieneImagen) {
+      _notificar("No puedes publicar un hilo vacío. Escribe algo o sube una foto.");
+      return;
     }
 
-    // 4. GUARDAR EN FIRESTORE
-    await FirebaseFirestore.instance.collection('hilos').add({
-      'autorId': user.uid,
-      'autorNombre': _miNombre,
-      'autorFoto': _miFotoPerfil, 
-      'texto': texto,
-      'imagenAdjunta': imagenUrlFinal, // Aquí se guarda el LINK
-      'fecha': FieldValue.serverTimestamp(),
-      'likes': 0,
-      'likedBy': [],
-    });
+    setState(() => _isPublishing = true);
 
-    if (mounted) Navigator.pop(context, true); 
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) throw "Debes iniciar sesión";
 
-  } catch (e) {
-    print("DEBUG: ERROR FATAL: $e");
-    _notificar("Ocurrió un error: $e");
-  } finally {
-    if (mounted) setState(() => _isPublishing = false);
+      String imagenUrlFinal = "";
+
+      // --- SUBIDA DE IMAGEN CON LÍMITE DE TIEMPO ---
+      if (tieneImagen) {
+        print("DEBUG: Iniciando subida a Storage...");
+        String fileName = "hilo_${user.uid}_${DateTime.now().millisecondsSinceEpoch}.jpg";
+        Reference storageRef = FirebaseStorage.instance.ref().child('hilos').child(fileName);
+        
+        UploadTask uploadTask = kIsWeb 
+            ? storageRef.putData(_webImage!) 
+            : storageRef.putFile(_imagenAdjuntaFile!);
+            
+        // Si no sube en 30 segundos, cancela todo
+        TaskSnapshot snapshot = await uploadTask.timeout(
+          const Duration(seconds: 30), 
+          onTimeout: () => throw "El internet está lento o Storage no responde (Timeout)."
+        );
+        imagenUrlFinal = await snapshot.ref.getDownloadURL();
+        print("DEBUG: Imagen subida con éxito: $imagenUrlFinal");
+      }
+
+      print("DEBUG: Iniciando guardado en Firestore...");
+      // --- GUARDADO EN BASE DE DATOS CON LÍMITE DE TIEMPO ---
+      await FirebaseFirestore.instance.collection('hilos').add({
+        'autorId': user.uid,
+        'autorNombre': _miNombre,
+        'autorFoto': _miFotoPerfil, 
+        'texto': texto,
+        'imagenAdjunta': imagenUrlFinal,
+        'fecha': FieldValue.serverTimestamp(),
+        'likes': 0,
+        'likedBy': [],
+      }).timeout(
+        const Duration(seconds: 15), 
+        onTimeout: () => throw "La base de datos de Firestore no responde."
+      );
+      print("DEBUG: ¡Hilo guardado en la base de datos!");
+
+      if (mounted) Navigator.pop(context, true); 
+
+    } catch (e) {
+      print("DEBUG: ERROR FATAL: $e");
+      _notificar("Error: $e"); // Esto te mostrará en pantalla qué falló exactamente
+    } finally {
+      if (mounted) setState(() => _isPublishing = false);
+    }
   }
 }
 

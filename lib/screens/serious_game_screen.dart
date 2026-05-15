@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
-import 'package:flutter_windowmanager/flutter_windowmanager.dart'; 
+
 import 'package:share_plus/share_plus.dart'; 
 
 class SeriousGameScreen extends StatefulWidget {
@@ -41,7 +41,7 @@ class _SeriousGameScreenState extends State<SeriousGameScreen> {
   @override
   void initState() {
     super.initState();
-    _activarSeguridadAntiCapturas(); 
+    
     _gameStream = FirebaseFirestore.instance.collection('juegos').doc(widget.juegoId).snapshots();
     
     _writingController.addListener(() {
@@ -64,13 +64,8 @@ class _SeriousGameScreenState extends State<SeriousGameScreen> {
     });
   }
 
-  Future<void> _activarSeguridadAntiCapturas() async {
-    await FlutterWindowManager.addFlags(FlutterWindowManager.FLAG_SECURE);
-  }
-
   @override
   void dispose() {
-    FlutterWindowManager.clearFlags(FlutterWindowManager.FLAG_SECURE); 
     _timer?.cancel();
     _writingController.dispose();
     _subtitleController.dispose();
