@@ -4,7 +4,6 @@ buildscript {
         google()
         mavenCentral()
     }
-
     dependencies {
         classpath 'com.android.tools.build:gradle:8.6.0'
         classpath 'com.google.gms:google-services:4.4.1'
@@ -27,10 +26,11 @@ subprojects {
     project.evaluationDependsOn(':app')
 }
 
-// --- ESTE ES EL PARCHE QUE ARREGLA EL ERROR DEL APK ---
+// --- NUEVO PARCHE SIN AFTER-EVALUATE PARA EVITAR EL CRASH ---
 subprojects {
-    afterEvaluate { project ->
-        if (project.hasProperty('android')) {
+    project.plugins.whenPluginAdded { plugin ->
+        if ("com.android.build.gradle.AppPlugin".equals(plugin.class.name) || 
+            "com.android.build.gradle.LibraryPlugin".equals(plugin.class.name)) {
             project.android {
                 if (namespace == null) {
                     namespace project.group
