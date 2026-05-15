@@ -45,10 +45,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   ImageProvider _obtenerImagenInteligente(String imageData) {
+    if (imageData.isEmpty) return const AssetImage('assets/images/logoNOA.png');
+    
+    // Si por error se guardó un link de storage hoy:
     if (imageData.startsWith('http')) {
       return CachedNetworkImageProvider(imageData);
-    } else {
-      return MemoryImage(base64Decode(imageData));
+    } 
+    
+    // El try-catch es el secreto para que no se quede cargando infinito
+    try {
+      return MemoryImage(base64Decode(imageData.trim()));
+    } catch (e) {
+      return const AssetImage('assets/images/logoNOA.png');
     }
   }
 
@@ -344,32 +352,43 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     Text(nombreActual, style: TextStyle(fontWeight: FontWeight.bold, color: navyNoa, fontSize: 13)),
                     const SizedBox(height: 4),
                     if (data['texto'] != null) Text(data['texto'], style: const TextStyle(fontSize: 14, height: 1.3)),
-                    if (data['imagenAdjunta'] != null && data['imagenAdjunta'].isNotEmpty)
+                    // ESTO REEMPLAZA TU LÍNEA 230 EN EL PERFIL
+                    if (data['imagenAdjunta'] != null && data['imagenAdjunta'].toString().isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(top: 10),
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(10),
-                          child: Image.memory(base64Decode(data['imagenAdjunta']), fit: BoxFit.cover),
+                          child: Image(
+                            image: _obtenerImagenInteligente(data['imagenAdjunta'].toString()),
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+                          ),
                         ),
                       ),
                     const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        GestureDetector(
-                          onTap: () => FirebaseFirestore.instance.collection('hilos').doc(docId).update({ 'likedBy': isLiked ? FieldValue.arrayRemove([user.uid]) : FieldValue.arrayUnion([user?.uid]) }),
-                          child: Row(children: [Icon(isLiked ? Icons.favorite : Icons.favorite_border, size: 18, color: isLiked ? Colors.red : Colors.grey), const SizedBox(width: 5), Text("${likedBy.length}", style: const TextStyle(color: Colors.grey, fontSize: 12))]),
-                        ),
-                        const SizedBox(width: 25),
-                        GestureDetector(onTap: () => _mostrarComentarios(context, docId, navyNoa), child: const Icon(Icons.mode_comment_outlined, size: 18, color: Colors.grey)),
-                        const SizedBox(width: 25),
-                        GestureDetector(onTap: () => Share.share("${data['texto']}\n\nEscrito por: $nombreActual en NOA"), child: const Icon(Icons.share_outlined, size: 18, color: Colors.grey)),
-                        const SizedBox(width: 25),
-                        GestureDetector(
-                          onTap: () => _mostrarDialogoPropina(context, autorId, nombreActual, docId), 
-                          child: const Icon(Icons.volunteer_activism_outlined, size: 18, color: Colors.orange)
-                        ),
-                      ],
-                    ),
+                    // Busca la Row de iconos dentro de _buildThreadsItem y asegúrate que se vea así:
+                  Row(
+                    children: [
+                      GestureDetector(
+                        onTap: () => FirebaseFirestore.instance.collection('hilos').doc(docId).update({ 'likedBy': isLiked ? FieldValue.arrayRemove([user?.uid]) : FieldValue.arrayUnion([user?.uid]) }),
+                        child: Row(children: [Icon(isLiked ? Icons.favorite : Icons.favorite_border, size: 18, color: isLiked ? Colors.red : Colors.grey), const SizedBox(width: 5), Text("${likedBy.length}", style: const TextStyle(color: Colors.grey, fontSize: 12))]),
+                      ),
+                      const SizedBox(width: 25),
+                      GestureDetector(onTap: () => _mostrarComentarios(context, docId, navyNoa), child: const Icon(Icons.mode_comment_outlined, size: 18, color: Colors.grey)),
+                      const SizedBox(width: 25),
+                      GestureDetector(onTap: () => Share.share("${data['texto']}\n\nEscrito por: $nombreActual en NOA"), child: const Icon(Icons.share_outlined, size: 18, color: Colors.grey)),
+                      const SizedBox(width: 25),
+                      GestureDetector(
+                        onTap: () => _mostrarDialogoPropina(context, autorId, nombreActual, docId), 
+                        child: const Icon(Icons.volunteer_activism_outlined, size: 18, color: Colors.orange)
+                      ),
+                      const SizedBox(width: 25), // Esto empuja el tacho de basura al final a la derecha
+                      GestureDetector(
+                        onTap: () => _mostrarConfirmacionEliminar(docId),
+                        child: const Icon(Icons.delete_outline, size: 18, color: Colors.redAccent),
+                      ),
+                    ],
+                  ),
                   ],
                 ),
               ),
@@ -691,5 +710,37 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   void _abrirBilletera(BuildContext context) {
     Navigator.push(context, MaterialPageRoute(builder: (context) => const WalletScreen()));
+  }
+  Future<void> _eliminarHilo(String docId) async {
+    try {
+      await FirebaseFirestore.instance.collection('hilos').doc(docId).delete();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Hilo eliminado"), backgroundColor: Colors.redAccent),
+      );
+    } catch (e) {
+      debugPrint("Error: $e");
+    }
+  }
+
+  void _mostrarConfirmacionEliminar(String docId) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: backgroundCream, // Ahora sí lo reconocerá
+        title: const Text("¿Eliminar hilo?"),
+        content: const Text("Esta acción no se puede deshacer."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("CANCELAR")),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _eliminarHilo(docId);
+            },
+            child: const Text("ELIMINAR", style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
   }
 }

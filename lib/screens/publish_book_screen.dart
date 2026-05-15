@@ -6,7 +6,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 
 class PublishBookScreen extends StatefulWidget {
-  final String? obraId; // NUEVO: Si trae ID es para editar/añadir capítulos. Si es null, es obra nueva.
+  final String? obraId; 
   
   const PublishBookScreen({super.key, this.obraId});
 
@@ -16,19 +16,27 @@ class PublishBookScreen extends StatefulWidget {
 
 class _PublishBookScreenState extends State<PublishBookScreen> {
   // --- COLORES CORPORATIVOS NOA ---
-  final Color inkBlue = const Color(0xFF111827); // Corregido al Navy estricto de NOA
+  final Color inkBlue = const Color(0xFF111827); // Navy estricto de NOA
   final Color matteGold = const Color(0xFFC4A77D);
   final Color backgroundCream = const Color(0xFFFCF6F0);
-  final Color darkInk = const Color(0xFF121212); // Fondo oscuro
-  final Color darkCard = const Color(0xFF1E1E1E); // Tarjetas en modo oscuro
+  final Color darkInk = const Color(0xFF121212); 
+  final Color darkCard = const Color(0xFF1E1E1E); 
 
   final TextEditingController _tituloController = TextEditingController();
   final TextEditingController _sinopsisController = TextEditingController();
   final TextEditingController _coinsController = TextEditingController(text: "150");
 
-  final List<Map<String, String>> _capitulos = [
+  // --- NUEVO: CONTROLADORES PARA MODO SERIO ---
+  final TextEditingController _pNombreController = TextEditingController();
+  final TextEditingController _pRolController = TextEditingController();
+
+  List<Map<String, String>> _capitulos = [
     {"titulo": "Capítulo 1", "contenido": ""}
   ];
+  
+  // --- NUEVO: VARIABLES PARA MODO SERIO ---
+  List<Map<String, String>> _personajes = []; 
+  bool _esModoSerio = false; 
 
   String _categoriaSeleccionada = "Fantasía";
   final List<String> _categorias = ["Fantasía", "Romance", "Terror", "Suspenso", "Drama", "Poesía", "Aventura", "Ciencia Ficción"];
@@ -40,21 +48,33 @@ class _PublishBookScreenState extends State<PublishBookScreen> {
   
   bool _isUploading = false;
   bool _isLoadingData = false;
-  bool _isDarkMode = false; // NUEVO: Toggle de Modo Oscuro
+  bool _isDarkMode = false; 
 
   @override
   void initState() {
     super.initState();
     if (widget.obraId != null) {
-      _cargarObraExistente(); // Si estamos editando, traemos los datos de Firebase
+      _cargarObraExistente(); 
     }
   }
 
-  // --- LÓGICA PARA CONTINUAR UN LIBRO EXISTENTE ---
+  // --- LÓGICA PARA PERSONAJES (MODO SERIO) ---
+  void _agregarPersonaje() {
+    if (_pNombreController.text.isNotEmpty) {
+      setState(() {
+        _personajes.add({
+          "nombre": _pNombreController.text.trim(),
+          "rol": _pRolController.text.trim(),
+        });
+        _pNombreController.clear();
+        _pRolController.clear();
+      });
+    }
+  }
+
   Future<void> _cargarObraExistente() async {
     setState(() => _isLoadingData = true);
     try {
-      // 1. Cargar datos generales de la obra
       var doc = await FirebaseFirestore.instance.collection('obras').doc(widget.obraId).get();
       if (doc.exists) {
         var data = doc.data()!;
@@ -64,6 +84,12 @@ class _PublishBookScreenState extends State<PublishBookScreen> {
         _esGratis = data['esGratis'] ?? true;
         _portadaUrlExistente = data['portadaUrl'];
         
+        // Cargar datos de Modo Serio si existen
+        _esModoSerio = data['esModoSerio'] ?? false;
+        if (data['manualPersonajes'] != null) {
+          _personajes = List<Map<String, String>>.from(data['manualPersonajes'].map((x) => Map<String, String>.from(x)));
+        }
+
         if (data['monetizacionTipo'] != null) {
           _cobrarPorCapitulos = data['monetizacionTipo'] == 'por_capitulo';
         }
@@ -72,14 +98,13 @@ class _PublishBookScreenState extends State<PublishBookScreen> {
         }
       }
 
-      // 2. Cargar los capítulos que el autor ya había escrito
       var caps = await FirebaseFirestore.instance.collection('obras').doc(widget.obraId).collection('capitulos').orderBy('orden').get();
       if (caps.docs.isNotEmpty) {
         _capitulos.clear();
         for (var c in caps.docs) {
           var cData = c.data();
           _capitulos.add({
-            "id": c.id, // Guardamos el ID para saber que este capítulo ya existe
+            "id": c.id, 
             "titulo": cData['titulo'] ?? "",
             "contenido": cData['contenido'] ?? "",
           });
@@ -108,7 +133,6 @@ class _PublishBookScreenState extends State<PublishBookScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Definición de colores dinámicos según el modo noche
     final Color currentBg = _isDarkMode ? darkInk : backgroundCream;
     final Color currentCard = _isDarkMode ? darkCard : Colors.white;
     final Color currentText = _isDarkMode ? Colors.white : inkBlue;
@@ -127,7 +151,6 @@ class _PublishBookScreenState extends State<PublishBookScreen> {
           style: TextStyle(color: currentText, fontWeight: FontWeight.bold, fontSize: 16)),
         centerTitle: true,
         actions: [
-          // BOTÓN DE MODO NOCHE
           IconButton(
             icon: Icon(_isDarkMode ? Icons.light_mode : Icons.dark_mode, color: _isDarkMode ? Colors.amber : inkBlue),
             onPressed: () => setState(() => _isDarkMode = !_isDarkMode),
@@ -139,7 +162,6 @@ class _PublishBookScreenState extends State<PublishBookScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ÁREA DE PORTADA
             Center(
               child: GestureDetector(
                 onTap: _seleccionarPortada,
@@ -172,10 +194,22 @@ class _PublishBookScreenState extends State<PublishBookScreen> {
             _label("Sinopsis", currentText),
             _buildTextField(_sinopsisController, "De qué trata tu historia...", currentCard, currentText, maxLines: 3),
 
-            const SizedBox(height: 30),
+            const SizedBox(height: 20),
+            
+            // --- NUEVA SECCIÓN: MODO SERIO ---
+            _buildModoSerioToggle(currentText),
+            
+            if (_esModoSerio) ...[
+              const SizedBox(height: 15),
+              _label("Manual de la Historia (Personajes y Roles)", currentText),
+              _buildPersonajeInput(currentCard, currentText),
+              const SizedBox(height: 10),
+              _buildPersonajesChips(),
+            ],
+
+            const SizedBox(height: 20),
             const Divider(),
             
-            // LISTA DE CAPÍTULOS DINÁMICA
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -194,7 +228,6 @@ class _PublishBookScreenState extends State<PublishBookScreen> {
             _buildNoaCoinsCard(currentCard, currentText),
             const SizedBox(height: 40),
 
-            // BOTÓN GUARDAR / PUBLICAR
             ElevatedButton(
               onPressed: _isUploading ? null : _publicarObraCompleta,
               style: ElevatedButton.styleFrom(
@@ -213,6 +246,55 @@ class _PublishBookScreenState extends State<PublishBookScreen> {
       ),
     );
   }
+
+  // --- NUEVOS WIDGETS PARA MODO SERIO ---
+  Widget _buildModoSerioToggle(Color textColor) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _isDarkMode ? matteGold.withOpacity(0.05) : matteGold.withOpacity(0.1), 
+        borderRadius: BorderRadius.circular(12)
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.groups, color: _esModoSerio ? Colors.teal : Colors.grey),
+          const SizedBox(width: 15),
+          Expanded(child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text("Activar Modo Serio", style: TextStyle(fontWeight: FontWeight.bold, color: textColor, fontSize: 13)),
+              Text("Permite que otros autores escriban contigo por turnos.", style: TextStyle(fontSize: 10, color: _isDarkMode ? Colors.white60 : Colors.black54)),
+            ],
+          )),
+          Switch(value: _esModoSerio, activeColor: Colors.teal, onChanged: (v) => setState(() => _esModoSerio = v)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPersonajeInput(Color cardColor, Color textColor) {
+    return Row(
+      children: [
+        Expanded(child: _buildTextField(_pNombreController, "Nombre", cardColor, textColor)),
+        const SizedBox(width: 8),
+        Expanded(child: _buildTextField(_pRolController, "Rol/Poder", cardColor, textColor)),
+        IconButton(onPressed: _agregarPersonaje, icon: Icon(Icons.add_circle, color: inkBlue, size: 30)),
+      ],
+    );
+  }
+
+  Widget _buildPersonajesChips() {
+    return Wrap(
+      spacing: 8,
+      children: _personajes.map((p) => Chip(
+        label: Text("${p['nombre']}: ${p['rol']}", style: TextStyle(fontSize: 10, color: _isDarkMode ? inkBlue : Colors.white)),
+        backgroundColor: matteGold,
+        onDeleted: () => setState(() => _personajes.remove(p)),
+        deleteIconColor: _isDarkMode ? inkBlue : Colors.white,
+      )).toList(),
+    );
+  }
+  // ----------------------------------------
 
   Widget _buildEditorCapitulo(int index, Color cardColor, Color textColor) {
     return Container(
@@ -233,7 +315,7 @@ class _PublishBookScreenState extends State<PublishBookScreen> {
           ),
           Divider(color: _isDarkMode ? Colors.white24 : Colors.black12),
           TextField(
-            maxLines: 15, // Más espacio para escribir
+            maxLines: 15, 
             minLines: 8,
             style: TextStyle(color: textColor, height: 1.6),
             decoration: InputDecoration(
@@ -331,10 +413,15 @@ class _PublishBookScreenState extends State<PublishBookScreen> {
     );
   }
 
-  // --- LÓGICA DE GUARDADO INTELIGENTE (CREAR O ACTUALIZAR) ---
   Future<void> _publicarObraCompleta() async {
     if (_tituloController.text.isEmpty || _capitulos[0]["contenido"]!.isEmpty) {
       _notificar("Faltan datos obligatorios o el capítulo está vacío.");
+      return;
+    }
+
+    // Validación extra para Modo Serio
+    if (_esModoSerio && _personajes.isEmpty) {
+      _notificar("Añade al menos un personaje al manual para el Modo Serio.");
       return;
     }
 
@@ -345,14 +432,12 @@ class _PublishBookScreenState extends State<PublishBookScreen> {
     try {
       String url = _portadaUrlExistente ?? "";
       
-      // Si el usuario subió una portada nueva, la guardamos
       if (_portadaBytes != null) {
         Reference ref = FirebaseStorage.instance.ref().child('portadas/${DateTime.now().millisecondsSinceEpoch}.jpg');
         await ref.putData(_portadaBytes!);
         url = await ref.getDownloadURL();
       }
 
-      // Preparamos los datos base del libro
       Map<String, dynamic> obraData = {
         "titulo": _tituloController.text.trim(),
         "categoria": _categoriaSeleccionada,
@@ -365,24 +450,30 @@ class _PublishBookScreenState extends State<PublishBookScreen> {
         "precioNoaCoins": _esGratis ? 0 : int.tryParse(_coinsController.text) ?? 0,
         "aceptaAds": true,
         "ultimaActualizacion": FieldValue.serverTimestamp(),
+        "esModoSerio": _esModoSerio, // Guardamos la bandera
       };
+
+      // Si es modo serio, inyectamos la lógica colaborativa
+      if (_esModoSerio) {
+        obraData["manualPersonajes"] = _personajes;
+        if (widget.obraId == null) {
+          obraData["autores"] = [user.uid]; // El creador es el primer autor
+          obraData["turnoActual"] = user.uid; // Es el turno del creador
+          obraData["estadoColaborativo"] = "reclutando"; // Listo para buscar a otros
+        }
+      }
 
       DocumentReference obraRef;
 
-      // CREAR vs ACTUALIZAR
       if (widget.obraId == null) {
-        // Es un libro nuevo
         obraData["fechaPublicacion"] = FieldValue.serverTimestamp();
         obraRef = await FirebaseFirestore.instance.collection('obras').add(obraData);
-        // Le sumamos 1 al contador de obras del usuario
         await FirebaseFirestore.instance.collection('usuarios').doc(user.uid).update({'obras': FieldValue.increment(1)});
       } else {
-        // Es una actualización
         obraRef = FirebaseFirestore.instance.collection('obras').doc(widget.obraId);
         await obraRef.update(obraData);
       }
 
-      // GUARDAR LOS CAPÍTULOS (Nuevos y Existentes)
       for (int i = 0; i < _capitulos.length; i++) {
         Map<String, dynamic> capData = {
           "orden": i + 1,
@@ -391,7 +482,6 @@ class _PublishBookScreenState extends State<PublishBookScreen> {
           "esGratis": _cobrarPorCapitulos ? (i < 3) : _esGratis, 
         };
 
-        // Si el capítulo ya tenía un ID, lo actualizamos. Si no, lo creamos.
         if (_capitulos[i].containsKey("id") && _capitulos[i]["id"] != null) {
           await obraRef.collection('capitulos').doc(_capitulos[i]["id"]).update(capData);
         } else {
@@ -410,7 +500,6 @@ class _PublishBookScreenState extends State<PublishBookScreen> {
     }
   }
 
-  // --- WIDGETS AUXILIARES ---
   Widget _label(String t, Color c) => Padding(padding: const EdgeInsets.only(top: 20, bottom: 8), child: Text(t.toUpperCase(), style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: c.withOpacity(0.5))));
   
   Widget _buildTextField(TextEditingController c, String h, Color cardColor, Color textColor, {int maxLines = 1}) {

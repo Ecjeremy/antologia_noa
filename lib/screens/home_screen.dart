@@ -13,6 +13,7 @@ import 'game_lobby_screen.dart';
 import 'search_screen.dart';
 import 'other_profile_screen.dart'; 
 import 'serious_game_screen.dart';
+import 'serious_lobby_screen.dart'; // NAVEGACIÓN A LA SALA DE ESPERA
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -59,12 +60,18 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // OPTIMIZACIÓN: Carga inteligente de imágenes
+  // OPTIMIZACIÓN: Carga inteligente de imágenes BLINDADA (No crashea si hay error)
   ImageProvider _obtenerImagenInteligente(String imageData) {
+    if (imageData.isEmpty) return const AssetImage('assets/images/logoNOA.png');
     if (imageData.startsWith('http')) {
       return CachedNetworkImageProvider(imageData);
     } else {
-      return MemoryImage(base64Decode(imageData));
+      try {
+        // El .trim() es vital para que no dé error por espacios invisibles
+        return MemoryImage(base64Decode(imageData.trim()));
+      } catch (e) {
+        return const AssetImage('assets/images/logoNOA.png');
+      }
     }
   }
 
@@ -262,162 +269,119 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildComunidadTab(BuildContext context) {
-  return StreamBuilder<QuerySnapshot>(
-    stream: FirebaseFirestore.instance
-        .collection('hilos')
-        .orderBy('fecha', descending: true)
-        .snapshots(),
-    builder: (context, snapshot) {
-      if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-      
-      final docs = snapshot.data!.docs;
-      
-      return ListView.builder(
-        itemCount: docs.length,
+    if (_hilos.isEmpty && _isLoading) return const Center(child: CircularProgressIndicator());
+    return RefreshIndicator(
+      onRefresh: _refrescarFeed, color: navyNoa,
+      child: ListView.builder(
+        controller: _scrollController,
+        itemCount: _hilos.length + (_hasMore ? 1 : 0),
         itemBuilder: (context, index) {
-          final data = docs[index].data() as Map<String, dynamic>;
-          final docId = docs[index].id;
-          return _buildHiloItem(context, data, docId);
+          if (index == _hilos.length) return Padding(padding: const EdgeInsets.all(20), child: Center(child: CircularProgressIndicator(color: matteGold)));
+          var data = _hilos[index].data() as Map<String, dynamic>;
+          return _buildHiloItem(context, data, _hilos[index].id);
         },
-      );
-    },
-  );
-
-}
+      ),
+    );
+  }
 
   Widget _buildHiloItem(BuildContext context, Map<String, dynamic> data, String docId) {
-  final user = FirebaseAuth.instance.currentUser;
-  List likedBy = data['likedBy'] ?? [];
-  bool isLiked = user != null && likedBy.contains(user.uid);
-  String autorId = data['autorId'] ?? '';
+    final user = FirebaseAuth.instance.currentUser;
+    List likedBy = data['likedBy'] ?? [];
+    bool isLiked = user != null && likedBy.contains(user.uid);
+    String autorId = data['autorId'] ?? '';
 
-  return StreamBuilder<DocumentSnapshot>(
-    stream: FirebaseFirestore.instance.collection('usuarios').doc(autorId).snapshots(),
-    builder: (context, userSnap) {
-      var userMap = userSnap.data?.data() as Map<String, dynamic>? ?? {};
-      String foto = userMap['fotoPerfilUrl'] ?? userMap['fotoBase64'] ?? '';
-      String nombreActual = userMap['nombre'] ?? data['autorNombre'] ?? "Usuario";
-      
-      return Container(
-        padding: const EdgeInsets.all(15),
-        decoration: const BoxDecoration(
-          border: Border(bottom: BorderSide(color: Colors.black12, width: 0.5))
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // FOTO DE PERFIL
-            GestureDetector(
-              onTap: () => _irAlPerfil(context, autorId),
-              child: CircleAvatar(
-                radius: 18, 
-                backgroundColor: navyNoa,
-                backgroundImage: foto.isNotEmpty ? _obtenerImagenInteligente(foto) : null,
-                child: foto.isEmpty ? const Icon(Icons.person, size: 20, color: Colors.white) : null,
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance.collection('usuarios').doc(autorId).snapshots(),
+      builder: (context, userSnap) {
+        var userMap = userSnap.data?.data() as Map<String, dynamic>? ?? {};
+        String foto = userMap['fotoPerfilUrl'] ?? 
+              userMap['fotoBase64'] ?? 
+              userMap['foto'] ?? // <-- ESTE ES EL QUE TE FALTA EN EL HOME
+              userMap['fotoPerfil'] ?? 
+              '';
+        String nombreActual = userMap['nombre'] ?? data['autorNombre'] ?? "Usuario";
+        
+        return Container(
+          padding: const EdgeInsets.all(15),
+          decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Colors.black12, width: 0.5))),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              GestureDetector(
+                onTap: () => _irAlPerfil(context, autorId),
+                child: CircleAvatar(
+                  radius: 18, 
+                  backgroundColor: const Color(0xFF111827), // Tu color oficial
+                  // La función inteligente ahora se encarga de todo de forma segura
+                  backgroundImage: _obtenerImagenInteligente(foto),
+                ),
               ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  GestureDetector(
-                    onTap: () => _irAlPerfil(context, autorId), 
-                    child: Text(nombreActual, style: const TextStyle(fontWeight: FontWeight.bold))
-                  ),
-                  const SizedBox(height: 5),
-                  Text(data['texto'] ?? ""),
-                  
-                  // IMAGEN (Protegida para que no de pantalla roja)
-                  if (data['imagenAdjunta'] != null && data['imagenAdjunta'].toString().isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 10), 
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(8), 
-                        child: Builder(
-                          builder: (context) {
-                            try {
-                              return Image.memory(
-                                base64Decode(data['imagenAdjunta']),
-                                fit: BoxFit.cover,
-                                width: double.infinity,
-                                errorBuilder: (context, error, stackTrace) => 
-                                    const Icon(Icons.broken_image, color: Colors.grey),
-                              );
-                            } catch (e) {
-                              return const SizedBox.shrink();
-                            }
-                          }
-                        )
-                      )
-                    ),
-                  
-                  const SizedBox(height: 12),
-                  
-                  // FILA DE ACCIONES (ESPACIOS IGUALES, NADA ALEJADO)
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.start,
-                    children: [
-                      // LIKE
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    GestureDetector(onTap: () => _irAlPerfil(context, autorId), child: Text(nombreActual, style: const TextStyle(fontWeight: FontWeight.bold))),
+                    const SizedBox(height: 5),
+                    Text(data['texto'] ?? ""),
+                    
+                    // --- AQUÍ ESTÁ EL ARREGLO FINAL DE LA IMAGEN DE LOS HILOS ---
+                    // Busca donde muestras la imagen del hilo y pon esto:
+                      // ESTO REEMPLAZA TU LÍNEA 235
+                      // REEMPLAZA LA LÍNEA 231 POR ESTA SEGURA:
+                      if (data['imagenAdjunta'] != null && data['imagenAdjunta'].isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 10), 
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(8), 
+                            child: Image(
+                              image: _obtenerImagenInteligente(data['imagenAdjunta'].toString()), 
+                              fit: BoxFit.cover,
+                              width: double.infinity,
+                            )
+                          )
+                        ),
+                    // -------------------------------------------------------------
+
+                    const SizedBox(height: 12),
+                    
+                    Row(children: [
                       GestureDetector(
                         onTap: () async {
-                          if (user == null) return;
                           try {
-                            await FirebaseFirestore.instance.collection('hilos').doc(docId).update({ 
-                              'likedBy': isLiked 
-                                  ? FieldValue.arrayRemove([user.uid]) 
-                                  : FieldValue.arrayUnion([user.uid]) 
-                            });
-                          } catch (e) {
-                            debugPrint("Error: $e");
-                          }
+                            await FirebaseFirestore.instance.collection('hilos').doc(docId).update({ 'likedBy': isLiked ? FieldValue.arrayRemove([user?.uid]) : FieldValue.arrayUnion([user?.uid]) });
+                          } catch (e) { debugPrint("Error: $e"); }
                         }, 
-                        child: Row(
-                          children: [
-                            Icon(isLiked ? Icons.favorite : Icons.favorite_border, 
-                                 color: isLiked ? Colors.red : Colors.grey, size: 20),
-                            const SizedBox(width: 5),
-                            Text("${likedBy.length}", style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                          ],
-                        ),
+                        child: Row(children: [Icon(isLiked ? Icons.favorite : Icons.favorite_border, color: isLiked ? Colors.red : Colors.grey, size: 20), const SizedBox(width: 5), Text("${likedBy.length}", style: const TextStyle(fontSize: 12, color: Colors.grey))])
                       ),
-                      
-                      const SizedBox(width: 30), // Espacio uniforme
-
-                      // COMENTARIO
-                      GestureDetector(
-                        onTap: () => _mostrarComentarios(context, docId, navyNoa), 
-                        child: const Icon(Icons.chat_bubble_outline, size: 20, color: Colors.grey)
-                      ),
-                      
-                      const SizedBox(width: 30), // Espacio uniforme
-
-                      // COMPARTIR
-                      GestureDetector(
-                        onTap: () => Share.share("${data['texto']}\n\nEscrito por: $nombreActual en NOA"), 
-                        child: const Icon(Icons.share_outlined, size: 20, color: Colors.grey)
-                      ),
-                      
-                      const SizedBox(width: 30), // Espacio uniforme (Donar ya no está lejos)
-
-                      // DONAR (PROPINA)
+                      const SizedBox(width: 25),
+                      GestureDetector(onTap: () => _mostrarComentarios(context, docId, navyNoa), child: const Icon(Icons.chat_bubble_outline, size: 20, color: Colors.grey)),
+                      const SizedBox(width: 25),
+                      GestureDetector(onTap: () => Share.share("${data['texto']}\n\nEscrito por: $nombreActual en NOA"), child: const Icon(Icons.share_outlined, size: 20, color: Colors.grey)),
+                      const SizedBox(width: 25),
                       GestureDetector(
                         onTap: () => _mostrarDialogoPropina(context, autorId, nombreActual, docId), 
                         child: const Icon(Icons.volunteer_activism_outlined, size: 20, color: Colors.orange)
                       ),
-                    ],
-                  )
-                ],
-              ),
-            )
-          ],
-        ),
-      );
-    }
-  );
-
-}
-  
+                      
+                      // --- EL BOTÓN MÁGICO CON SEGURIDAD ---
+                      if (autorId == user?.uid) ...[
+                        const SizedBox(width: 25),
+                        GestureDetector(
+                          onTap: () => _mostrarConfirmacionEliminar(docId),
+                          child: const Icon(Icons.delete_outline, size: 20, color: Colors.redAccent),
+                        ),
+                      ]
+                    ])
+                  ],
+                ),
+              )
+            ],
+          ),
+        );
+      }
+    );
+  }
 
   // OPTIMIZACIÓN: Comentarios Anti-Spam
   void _mostrarComentarios(BuildContext context, String docId, Color colorPrimario) {
@@ -517,6 +481,8 @@ class _HomeScreenState extends State<HomeScreen> {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance.collection('obras').snapshots(),
       builder: (context, snapshot) {
+        if (snapshot.hasError) return Center(child: Text("Error: ${snapshot.error}"));
+        
         if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
         final libros = snapshot.data!.docs;
         return ListView(
@@ -642,32 +608,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(height: 12),
                 ElevatedButton(
-                  onPressed: () async {
-                    try {
-                      final docRef = FirebaseFirestore.instance.collection('juegos').doc("PARTIDA_SERIA_TEST");
-                      final docSnap = await docRef.get();
-
-                      if (!docSnap.exists || docSnap.data() == null) {
-                        await docRef.set({
-                          'textoAcumulado': "", 
-                          'turnoActual': FirebaseAuth.instance.currentUser?.uid, 
-                          'participantes': [FirebaseAuth.instance.currentUser?.uid], 
-                          'participantesNombres': ["Escritor Inicial"], 
-                          'turnoActualIndice': 0,
-                          'estado': "activo",
-                          'fechaCreacion': FieldValue.serverTimestamp(),
-                        }, SetOptions(merge: true)); 
-                      }
-
-                      if (context.mounted) {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (context) => const SeriousGameScreen(juegoId: "PARTIDA_SERIA_TEST")),
-                        );
-                      }
-                    } catch (e) {
-                      debugPrint("Error iniciando modo serio: $e");
-                    }
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const SeriousLobbyScreen()),
+                    );
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.white,
@@ -680,6 +625,47 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           const Icon(Icons.history_edu, color: Colors.white24, size: 50),
+        ],
+      ),
+    );
+  }
+  // --- FUNCIONES DE ELIMINACIÓN PARA EL HOME ---
+
+  Future<void> _eliminarHilo(String docId) async {
+  try {
+    // 1. Borrado en la base de datos
+    await FirebaseFirestore.instance.collection('hilos').doc(docId).delete();
+    
+    // 2. Borrado LOCAL e INSTANTÁNEO (Sin pestañeo)
+    setState(() {
+      _hilos.removeWhere((doc) => doc.id == docId);
+    });
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Hilo eliminado"), backgroundColor: Colors.redAccent),
+    );
+  } catch (e) {
+    debugPrint("Error: $e");
+  }
+}
+
+  void _mostrarConfirmacionEliminar(String docId) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: backgroundCream,
+        title: const Text("¿Eliminar hilo?", style: TextStyle(fontWeight: FontWeight.bold)),
+        content: const Text("Esta acción no se puede deshacer."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("CANCELAR")),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _eliminarHilo(docId);
+            },
+            child: const Text("ELIMINAR", style: TextStyle(color: Colors.red)),
+          ),
         ],
       ),
     );

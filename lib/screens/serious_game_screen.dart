@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
+import 'package:flutter_windowmanager/flutter_windowmanager.dart'; 
+import 'package:share_plus/share_plus.dart'; 
 
 class SeriousGameScreen extends StatefulWidget {
   final String juegoId;
@@ -24,6 +26,7 @@ class _SeriousGameScreenState extends State<SeriousGameScreen> {
   final Color navyNoa = const Color(0xFF111827); 
   final Color tealNoa = const Color(0xFF009688);
   final Color backgroundCream = const Color(0xFFFCF6F0);
+  final Color matteGold = const Color(0xFFC4A77D);
 
   bool _isDarkMode = false;
   String _selectedFont = 'Serif'; 
@@ -33,11 +36,12 @@ class _SeriousGameScreenState extends State<SeriousGameScreen> {
   Timestamp? _limiteTurnoActual;
   String _personajesOriginales = ""; 
   bool _inicializado = false;
-  bool _saltandoTurno = false; // Evita bucles al saltar
+  bool _saltandoTurno = false;
 
   @override
   void initState() {
     super.initState();
+    _activarSeguridadAntiCapturas(); 
     _gameStream = FirebaseFirestore.instance.collection('juegos').doc(widget.juegoId).snapshots();
     
     _writingController.addListener(() {
@@ -45,7 +49,6 @@ class _SeriousGameScreenState extends State<SeriousGameScreen> {
       if (mounted && _wordCount != words) setState(() => _wordCount = words);
     });
 
-    // RELOJ MAESTRO CON LÓGICA DE SALTO
     _timer = Timer.periodic(const Duration(seconds: 1), (t) {
       if (!mounted || _limiteTurnoActual == null || _saltandoTurno) return;
       
@@ -54,14 +57,29 @@ class _SeriousGameScreenState extends State<SeriousGameScreen> {
       
       if (diff.isNegative) {
         setState(() => _timeLeft = "TIEMPO AGOTADO");
-        _saltarTurnoPorInactividad(); // <-- Aquí ocurre la magia
+        _saltarTurnoPorInactividad(); 
       } else {
         setState(() => _timeLeft = "${diff.inHours}h ${diff.inMinutes % 60}m ${diff.inSeconds % 60}s");
       }
     });
   }
 
-  // FUNCIÓN PARA QUITAR EL TURNO AL AUTOR LENTO
+  Future<void> _activarSeguridadAntiCapturas() async {
+    await FlutterWindowManager.addFlags(FlutterWindowManager.FLAG_SECURE);
+  }
+
+  @override
+  void dispose() {
+    FlutterWindowManager.clearFlags(FlutterWindowManager.FLAG_SECURE); 
+    _timer?.cancel();
+    _writingController.dispose();
+    _subtitleController.dispose();
+    _titleController.dispose();
+    _categoryController.dispose();
+    _charsController.dispose();
+    super.dispose();
+  }
+
   Future<void> _saltarTurnoPorInactividad() async {
     if (_saltandoTurno) return;
     _saltandoTurno = true;
@@ -75,16 +93,13 @@ class _SeriousGameScreenState extends State<SeriousGameScreen> {
 
       int indexActual = data['turnoActualIndice'] ?? 0;
       List uids = data['participantes'] ?? [];
-      List nombres = data['participantesNombres'] ?? [];
 
-      // Pasamos al siguiente sin guardar texto nuevo
       await FirebaseFirestore.instance.collection('juegos').doc(widget.juegoId).update({
         'turnoActualIndice': FieldValue.increment(1),
-        'limiteTurno': Timestamp.fromDate(DateTime.now().add(const Duration(hours: 12))),
+        'limiteTurno': Timestamp.fromDate(DateTime.now().add(const Duration(hours: 3))), // 3 HORAS
         'fechaActualizacion': FieldValue.serverTimestamp(),
       });
 
-      // Notificar al nuevo autor que ahora es su turno por el salto
       int nextIndex = (indexActual + 1) % uids.length;
       String uidSiguiente = uids[nextIndex];
       
@@ -97,11 +112,7 @@ class _SeriousGameScreenState extends State<SeriousGameScreen> {
         'juegoId': widget.juegoId,
       });
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Un autor perdió su turno por tiempo. El juego continúa."), backgroundColor: Colors.orange)
-        );
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Un autor perdió su turno por tiempo. El juego continúa."), backgroundColor: Colors.orange));
     } catch (e) {
       debugPrint("Error al saltar turno: $e");
     } finally {
@@ -109,15 +120,46 @@ class _SeriousGameScreenState extends State<SeriousGameScreen> {
     }
   }
 
-  @override
-  void dispose() {
-    _timer?.cancel();
-    _writingController.dispose();
-    _subtitleController.dispose();
-    _titleController.dispose();
-    _categoryController.dispose();
-    _charsController.dispose();
-    super.dispose();
+  void _compartirObra(String titulo) {
+    Share.share("Sigue la creación de '$titulo' en NOA. ¡Una historia escrita colaborativamente por varios autores!");
+  }
+
+  Future<void> _toggleFavorito(List favoritosActuales) async {
+    final miUid = currentUser?.uid;
+    if (miUid == null) return;
+    bool esFav = favoritosActuales.contains(miUid);
+
+    await FirebaseFirestore.instance.collection('juegos').doc(widget.juegoId).update({
+      'favoritosBy': esFav ? FieldValue.arrayRemove([miUid]) : FieldValue.arrayUnion([miUid]),
+    });
+  }
+
+  Future<void> _pagarPorEditar() async {
+    final miUid = currentUser?.uid;
+    if (miUid == null) return;
+    int costo = 50;
+
+    try {
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        DocumentReference miRef = FirebaseFirestore.instance.collection('usuarios').doc(miUid);
+        DocumentSnapshot miDoc = await transaction.get(miRef);
+        
+        int miSaldo = miDoc.get('noaCoins') ?? 0;
+        if (miSaldo < costo) throw Exception("SaldoInsuficiente");
+
+        transaction.update(miRef, {'noaCoins': FieldValue.increment(-costo)});
+      });
+
+      await FirebaseFirestore.instance.collection('juegos').doc(widget.juegoId).update({
+        'turnoActualIndice': FieldValue.increment(-1),
+      });
+
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Pagaste $costo Coins. Recuperaste tu turno para editar."), backgroundColor: matteGold));
+    } catch (e) {
+      if (mounted && e.toString().contains("SaldoInsuficiente")) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("No tienes suficientes Noa Coins para esta acción."), backgroundColor: Colors.red));
+      }
+    }
   }
 
   @override
@@ -133,8 +175,32 @@ class _SeriousGameScreenState extends State<SeriousGameScreen> {
       appBar: AppBar(
         backgroundColor: _isDarkMode ? const Color(0xFF121212) : backgroundCream,
         elevation: 0,
+        iconTheme: IconThemeData(color: _isDarkMode ? Colors.white : navyNoa),
         title: Image.asset('assets/images/logoNOA.png', height: 40),
         centerTitle: true,
+        actions: [
+          StreamBuilder<DocumentSnapshot>(
+            stream: _gameStream,
+            builder: (context, snapshot) {
+              if (!snapshot.hasData || !snapshot.data!.exists) return const SizedBox();
+              var data = snapshot.data!.data() as Map<String, dynamic>;
+              List favs = data['favoritosBy'] ?? [];
+              bool isFav = currentUser != null && favs.contains(currentUser!.uid);
+              return Row(
+                children: [
+                  IconButton(
+                    icon: Icon(isFav ? Icons.bookmark : Icons.bookmark_border, color: isFav ? matteGold : (_isDarkMode ? Colors.white : navyNoa)),
+                    onPressed: () => _toggleFavorito(favs),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.share_outlined),
+                    onPressed: () => _compartirObra(data['titulo'] ?? 'esta obra'),
+                  ),
+                ],
+              );
+            }
+          )
+        ],
       ),
       body: StreamBuilder<DocumentSnapshot>(
         stream: _gameStream,
@@ -146,17 +212,20 @@ class _SeriousGameScreenState extends State<SeriousGameScreen> {
           List participantes = data['participantes'] ?? [];
           List nombres = data['participantesNombres'] ?? [];
           String textoBase = data['textoAcumulado'] ?? "";
+          String borradorTemp = data['borradorActivo'] ?? "";
           
           if (!_inicializado) {
             _titleController.text = data['titulo'] ?? "";
             _categoryController.text = data['categoria'] ?? "";
             _charsController.text = data['personajes'] ?? "";
             _personajesOriginales = data['personajes'] ?? "";
+            if (borradorTemp.isNotEmpty && _writingController.text.isEmpty) _writingController.text = borradorTemp;
             _inicializado = true;
           }
 
-          bool esMiTurno = currentUser != null && participantes[index % participantes.length] == currentUser!.uid;
-          String autorActual = nombres[index % nombres.length];
+          bool esMiTurno = currentUser != null && participantes.isNotEmpty && participantes[index % participantes.length] == currentUser!.uid;
+          bool fuiAnterior = currentUser != null && index > 0 && participantes.isNotEmpty && participantes[(index - 1) % participantes.length] == currentUser!.uid;
+          String autorActual = nombres.isNotEmpty ? nombres[index % nombres.length] : "Desconocido";
           _limiteTurnoActual = data['limiteTurno'];
 
           return SingleChildScrollView(
@@ -171,7 +240,7 @@ class _SeriousGameScreenState extends State<SeriousGameScreen> {
                 if (textoBase.isNotEmpty) _buildContexto(textoBase, style),
                 const SizedBox(height: 20),
                 _buildEditor(esMiTurno, style),
-                _buildFooter(esMiTurno, textoBase, index, nombres),
+                _buildFooter(esMiTurno, fuiAnterior, textoBase, index, nombres, participantes),
               ],
             ),
           );
@@ -233,7 +302,7 @@ class _SeriousGameScreenState extends State<SeriousGameScreen> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(esMiTurno ? "TU TURNO" : "AUTOR: $autor", style: TextStyle(fontWeight: FontWeight.bold, color: esMiTurno ? tealNoa : navyNoa)),
+        Text(esMiTurno ? "TU TURNO" : "AUTOR: $autor", style: TextStyle(fontWeight: FontWeight.bold, color: esMiTurno ? tealNoa : (_isDarkMode ? Colors.white : navyNoa))),
         Text(_timeLeft, style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
       ],
     );
@@ -267,9 +336,11 @@ class _SeriousGameScreenState extends State<SeriousGameScreen> {
         const SizedBox(height: 10),
         TextField(
           controller: _writingController,
-          maxLines: null, minLines: 8, enabled: active, style: style,
+          maxLines: null, minLines: 8, enabled: active, 
+          style: style,
+          enableInteractiveSelection: false, 
           decoration: InputDecoration(
-            hintText: "Escribe tu aporte aquí...", 
+            hintText: active ? "Escribe tu aporte aquí..." : "Espera tu turno para escribir...", 
             fillColor: _isDarkMode ? const Color(0xFF1E1E1E) : Colors.white,
             filled: true,
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
@@ -279,97 +350,107 @@ class _SeriousGameScreenState extends State<SeriousGameScreen> {
     );
   }
 
-  Widget _buildFooter(bool miTurno, String texto, int index, List nombres) {
+  Widget _buildFooter(bool miTurno, bool fuiAnterior, String texto, int index, List nombres, List uids) {
     return Column(
       children: [
         Align(alignment: Alignment.centerRight, child: Text("$_wordCount palabras", style: const TextStyle(fontSize: 11))),
         const SizedBox(height: 10),
-        ElevatedButton(
-          onPressed: (miTurno && _wordCount >= 30) ? () => _guardar(texto, index, nombres) : null,
-          style: ElevatedButton.styleFrom(backgroundColor: navyNoa, minimumSize: const Size(double.infinity, 50)),
-          child: Text((index + 1) == nombres.length ? "PUBLICAR LIBRO" : "GUARDAR PARTE", style: const TextStyle(color: Colors.white)),
-        ),
+        if (miTurno) ...[
+          OutlinedButton(
+            onPressed: () => _guardarBorrador(),
+            style: OutlinedButton.styleFrom(minimumSize: const Size(double.infinity, 45), side: BorderSide(color: navyNoa)),
+            child: Text("GUARDAR BORRADOR", style: TextStyle(color: _isDarkMode ? Colors.white : navyNoa)),
+          ),
+          const SizedBox(height: 10),
+          ElevatedButton(
+            onPressed: (_wordCount >= 30) ? () => _finalizarTurno(texto, index, nombres, uids) : null,
+            style: ElevatedButton.styleFrom(backgroundColor: navyNoa, minimumSize: const Size(double.infinity, 50)),
+            child: Text((index + 1) >= nombres.length ? "PUBLICAR LIBRO" : "FINALIZAR TURNO", style: const TextStyle(color: Colors.white)),
+          ),
+        ],
+        if (!miTurno && fuiAnterior)
+          TextButton.icon(
+            onPressed: _pagarPorEditar,
+            icon: Icon(Icons.generating_tokens, color: matteGold),
+            label: Text("Editar turno anterior (50 Coins)", style: TextStyle(color: _isDarkMode ? Colors.white : navyNoa)),
+          ),
       ],
     );
   }
 
-  Future<void> _guardar(String anterior, int index, List nombres) async {
-    if (index > 0 && !_charsController.text.contains(_personajesOriginales)) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("No puedes borrar personajes anteriores.")));
+  Future<void> _guardarBorrador() async {
+    await FirebaseFirestore.instance.collection('juegos').doc(widget.juegoId).update({
+      'borradorActivo': _writingController.text.trim(),
+    });
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Borrador guardado localmente.")));
+  }
+
+  Future<void> _finalizarTurno(String anterior, int index, List nombres, List uids) async {
+    if (_writingController.text.trim().length < 30) {
+      _notificar("Escribe al menos 30 palabras para dar calidad a la obra.");
       return;
     }
 
+    setState(() => _saltandoTurno = true);
+    
     String aporte = _writingController.text.trim();
     if (_subtitleController.text.trim().isNotEmpty) {
       aporte = "— ${_subtitleController.text.trim().toUpperCase()} —\n\n$aporte";
     }
 
     String finalTxt = anterior.isEmpty ? aporte : "$anterior\n\n$aporte";
-    bool esUltimo = (index + 1) == nombres.length;
+    
+    bool esUltimo = (index + 1) >= nombres.length;
 
-    Map<String, dynamic> up = {
-      'textoAcumulado': finalTxt,
-      'titulo': _titleController.text.isEmpty ? "Obra sin título" : _titleController.text,
-      'categoria': _categoryController.text.isEmpty ? "General" : _categoryController.text,
-      'personajes': _charsController.text,
-      'fechaActualizacion': FieldValue.serverTimestamp(),
-      'limiteTurno': Timestamp.fromDate(DateTime.now().add(const Duration(hours: 12))),
-    };
+    try {
+      if (esUltimo) {
+        await FirebaseFirestore.instance.collection('obras').add({
+          'titulo': _titleController.text.trim().isEmpty ? "Obra sin título" : _titleController.text.trim(),
+          'contenido': finalTxt,
+          'autoresUids': uids, 
+          'autoresNombres': nombres,
+          'categoria': _categoryController.text.trim().isEmpty ? "General" : _categoryController.text.trim(),
+          'fechaPublicacion': FieldValue.serverTimestamp(),
+          'vistas': 0,        
+          'favoritos': 0,     
+          'portadaUrl': '',   
+          'esModoSerio': true,
+        });
 
-    if (esUltimo) {
-      await FirebaseFirestore.instance.collection('obras').add({
-        'titulo': up['titulo'],
-        'contenido': finalTxt,
-        'autores': nombres,
-        'categoria': up['categoria'], 
-        'fechaPublicacion': FieldValue.serverTimestamp(),
-        'etiqueta': 'Modo Serio',
-      });
-      await FirebaseFirestore.instance.collection('juegos').doc(widget.juegoId).update({'estado': 'completado'});
-      if (mounted) Navigator.pop(context);
-    } else {
-      // 1. Pasamos el turno
-      up['turnoActualIndice'] = FieldValue.increment(1);
-      await FirebaseFirestore.instance.collection('juegos').doc(widget.juegoId).update(up);
-      
-      // 2. --- ENVIAR NOTIFICACIÓN AL SIGUIENTE AUTOR ---
-      try {
-        var docActual = await FirebaseFirestore.instance.collection('juegos').doc(widget.juegoId).get();
-        List uids = docActual.data()?['participantes'] ?? [];
-        int nextIndex = index + 1;
+        await FirebaseFirestore.instance.collection('juegos').doc(widget.juegoId).update({'estado': 'completado'});
         
-        if (uids.length > nextIndex) {
-          String uidSiguiente = uids[nextIndex];
-          await FirebaseFirestore.instance
-              .collection('usuarios')
-              .doc(uidSiguiente)
-              .collection('notificaciones')
-              .add({
-            'titulo': '¡Es tu turno en NOA! ✍️',
-            'mensaje': 'Te toca continuar la obra "${up['titulo']}". Tienes 12 horas para escribir tu parte.',
-            'fecha': FieldValue.serverTimestamp(),
-            'leida': false,
-            'tipo': 'turno_juego',
-            'juegoId': widget.juegoId,
-          });
+        if (mounted) {
+          _notificar("¡Obra publicada! Ahora otros podrán verla y darte propinas.");
+          Navigator.pop(context); 
         }
-      } catch (e) {
-        debugPrint("Error al enviar notificación: $e");
+      } else {
+        await FirebaseFirestore.instance.collection('juegos').doc(widget.juegoId).update({
+          'textoAcumulado': finalTxt,
+          'turnoActualIndice': FieldValue.increment(1),
+          'fechaActualizacion': FieldValue.serverTimestamp(),
+          'limiteTurno': Timestamp.fromDate(DateTime.now().add(const Duration(hours: 3))), // 3 HORAS
+        });
+        
+        _writingController.clear();
+        _subtitleController.clear();
+        _notificar("Turno enviado al siguiente autor.");
       }
-      // ------------------------------------------------
+    } catch (e) {
+      _notificar("Error al procesar: $e");
+    } finally {
+      if (mounted) setState(() => _saltandoTurno = false);
+    }
+  }
 
-      _writingController.clear();
-      _subtitleController.clear(); 
-      _inicializado = false; 
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Aporte guardado. Hemos notificado al siguiente autor."), 
-            backgroundColor: Color(0xFF009688) // Tu Teal corporativo
-          )
-        );
-      }
+  void _notificar(String mensaje) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(mensaje, style: const TextStyle(color: Colors.white)),
+          backgroundColor: const Color(0xFF111827),
+          duration: const Duration(seconds: 3),
+        ),
+      );
     }
   }
 }

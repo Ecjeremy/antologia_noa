@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'reader_screen.dart';
+import 'other_profile_screen.dart';
 
 class BookDetailsScreen extends StatefulWidget {
   final String obraId;   
@@ -177,6 +178,122 @@ class _BookDetailsScreenState extends State<BookDetailsScreen> {
       if (mounted) setState(() => _procesandoCompra = false);
     }
   }
+  // --- LÓGICA DE PROPINAS COLECTIVAS (SPLIT) ---
+  Future<void> _enviarPropinaColectiva(int totalPropina, List autoresUids) async {
+    final miId = FirebaseAuth.instance.currentUser?.uid;
+    if (miId == null) {
+      _mostrarMensaje("Inicia sesión para enviar propinas.");
+      return;
+    }
+
+    if (autoresUids.isEmpty) {
+      // Si por alguna razón no hay array, usamos el autor principal
+      autoresUids = [widget.autorId];
+    }
+
+    setState(() => _procesandoCompra = true); // Usamos tu variable de carga para bloquear la UI
+
+    // Configuración del Split
+    double comisionApp = 0.15; // 15% para Angel (Creador)
+    int coinsParaCreador = (totalPropina * comisionApp).round();
+    int restanteParaAutores = totalPropina - coinsParaCreador;
+    int coinsPorAutor = (restanteParaAutores / autoresUids.length).floor();
+
+    try {
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        // 1. Descontar saldo al emisor
+        DocumentReference emisorRef = FirebaseFirestore.instance.collection('usuarios').doc(miId);
+        DocumentSnapshot emisorSnap = await transaction.get(emisorRef);
+        int saldoActual = emisorSnap.get('noaCoins') ?? 0;
+
+        if (saldoActual < totalPropina) throw Exception("Saldo insuficiente para la propina.");
+        transaction.update(emisorRef, {'noaCoins': FieldValue.increment(-totalPropina)});
+
+        // 2. Comisión del Creador (TÚ)
+        // REEMPLAZA 'AQUI_TU_UID_REAL' POR TU UID DE FIREBASE DE PRODUCCIÓN
+        DocumentReference creadorRef = FirebaseFirestore.instance.collection('usuarios').doc('AQUI_TU_UID_REAL'); 
+        transaction.update(creadorRef, {'noaCoins': FieldValue.increment(coinsParaCreador)});
+
+        // 3. Repartir a todos los co-autores
+        for (String autorUid in autoresUids) {
+          DocumentReference autorRef = FirebaseFirestore.instance.collection('usuarios').doc(autorUid);
+          transaction.update(autorRef, {'noaCoins': FieldValue.increment(coinsPorAutor)});
+          
+          // Enviar notificación a cada autor
+          DocumentReference notifRef = autorRef.collection('notificaciones').doc();
+          transaction.set(notifRef, {
+            'titulo': '¡Propina Colectiva! 🪙',
+            'mensaje': 'Has recibido $coinsPorAutor Noa Coins gracias a tu participación en "${widget.titulo}".',
+            'fecha': FieldValue.serverTimestamp(),
+            'leida': false,
+            'tipo': 'propina',
+          });
+        }
+      });
+
+      _mostrarMensaje("¡Propina enviada! Has apoyado a los ${autoresUids.length} autores.");
+    } catch (e) {
+      _mostrarMensaje(e.toString().replaceAll("Exception: ", ""));
+    } finally {
+      if (mounted) setState(() => _procesandoCompra = false);
+    }
+  }
+
+  // Cuadro de diálogo para elegir la cantidad de propina
+  void _mostrarDialogoPropina(List autoresUids) {
+    int cantidadElegida = 10;
+    
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setStateDialog) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFFFCF6F0),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+              title: Text("Apoyar a los autores", style: TextStyle(color: navyNoa, fontWeight: FontWeight.bold, fontSize: 16)),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text("¡Regala Noa Coins a los creadores de esta obra!", style: TextStyle(fontSize: 13)),
+                  const SizedBox(height: 20),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [10, 50, 100].map((valor) {
+                      return ChoiceChip(
+                        label: Text("$valor", style: TextStyle(color: cantidadElegida == valor ? Colors.white : navyNoa, fontWeight: FontWeight.bold)),
+                        selected: cantidadElegida == valor,
+                        selectedColor: matteGold,
+                        backgroundColor: Colors.transparent,
+                        side: BorderSide(color: matteGold),
+                        onSelected: (selected) {
+                          if (selected) setStateDialog(() => cantidadElegida = valor);
+                        },
+                      );
+                    }).toList(),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text("CANCELAR", style: TextStyle(color: Colors.grey)),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: navyNoa, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _enviarPropinaColectiva(cantidadElegida, autoresUids);
+                  },
+                  child: const Text("ENVIAR", style: TextStyle(color: Colors.white)),
+                ),
+              ],
+            );
+          }
+        );
+      }
+    );
+  }
 
   void _mostrarConfirmacionCompra() {
     showDialog(
@@ -272,10 +389,8 @@ class _BookDetailsScreenState extends State<BookDetailsScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: Text(data['titulo'] ?? widget.titulo, textAlign: TextAlign.center, style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: navyNoa, fontFamily: 'serif')),
                 ),
-                Text("por ${data['autorNombre'] ?? widget.autor}", style: const TextStyle(fontSize: 16, color: Colors.grey, fontStyle: FontStyle.italic, fontFamily: 'serif')),
                 const SizedBox(height: 20),
-
-                _buildStatsBar(data),
+                _buildAutores(data),
                 const SizedBox(height: 25),
 
                 Padding(
@@ -289,7 +404,35 @@ class _BookDetailsScreenState extends State<BookDetailsScreen> {
 
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 40),
-                  child: _buildBotonAccion(),
+                  child: Column(
+                    children: [
+                      _buildBotonAccion(),
+                      const SizedBox(height: 15),
+                      // NUEVO BOTÓN DE PROPINA
+                      ElevatedButton.icon(
+                        onPressed: () {
+                           // Extraemos la lista de UIDs de autores o pasamos el autor principal
+                          List autoresUids = data['autoresUids'] ?? [widget.autorId];
+                          _mostrarDialogoPropina(autoresUids);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: navyNoa,
+                          minimumSize: const Size(double.infinity, 50),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30), 
+                            side: BorderSide(color: matteGold, width: 1.5)
+                          ),
+                          elevation: 0,
+                        ),
+                        icon: Icon(Icons.volunteer_activism, color: matteGold),
+                        label: const Text(
+                          "DAR PROPINA A AUTORES", 
+                          style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 40),
               ],
@@ -358,6 +501,69 @@ class _BookDetailsScreenState extends State<BookDetailsScreen> {
     return _procesandoCompra 
       ? const Center(child: CircularProgressIndicator())
       : _botonBase("DESBLOQUEAR POR 🪙 ${widget.precioNoaCoins}", matteGold, _mostrarConfirmacionCompra);
+  }
+  // --- NUEVA LÓGICA: NOMBRES DE AUTORES CLIQUEABLES ---
+  Widget _buildAutores(Map<String, dynamic> data) {
+    List autoresDetalle = data['autoresDetalle'] ?? [];
+
+    // SI ES UN LIBRO DEL MODO CAOS (Tiene múltiples autores guardados)
+    if (autoresDetalle.isNotEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        child: Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          alignment: WrapAlignment.center,
+          children: autoresDetalle.map((autor) {
+            return ActionChip(
+              backgroundColor: matteGold.withOpacity(0.15),
+              side: BorderSide(color: matteGold.withOpacity(0.5)),
+              avatar: Icon(Icons.person_pin, size: 18, color: navyNoa),
+              label: Text(
+                autor['nombre'] ?? 'Escritor', 
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: navyNoa)
+              ),
+              onPressed: () {
+                if (autor['id'] != null) {
+                  Navigator.push(context, MaterialPageRoute(
+                    builder: (context) => OtherProfileScreen(userId: autor['id'])
+                  ));
+                }
+              },
+            );
+          }).toList(),
+        ),
+      );
+    } 
+    // SI ES UN LIBRO NORMAL (Un solo autor)
+    else {
+      String autorId = data['autorId'] ?? widget.autorId;
+      String autorNombre = data['autorNombre'] ?? widget.autor;
+
+      return GestureDetector(
+        onTap: () {
+          // Evitamos navegar si el ID es 'comunidad' (libros huérfanos sin IDs específicos)
+          if (autorId.isNotEmpty && autorId != 'comunidad') {
+            Navigator.push(context, MaterialPageRoute(
+              builder: (context) => OtherProfileScreen(userId: autorId)
+            ));
+          } else {
+            _mostrarMensaje("Este libro es de la comunidad global.");
+          }
+        },
+        child: Text(
+          "por $autorNombre", 
+          style: TextStyle(
+            fontSize: 16, 
+            color: matteGold, // Un toque dorado para invitar a tocar
+            fontStyle: FontStyle.italic, 
+            fontFamily: 'serif',
+            decoration: TextDecoration.underline, // Subrayado sutil para que sepan que es un link
+            decorationColor: matteGold
+          )
+        ),
+      );
+    }
   }
 
   Widget _botonBase(String texto, Color color, VoidCallback accion) {

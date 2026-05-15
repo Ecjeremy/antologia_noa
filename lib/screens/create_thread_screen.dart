@@ -8,6 +8,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'dart:async'; // <--- ESTA ES LA QUE FALTA
 
 class CreateThreadScreen extends StatefulWidget {
   const CreateThreadScreen({super.key});
@@ -103,49 +104,79 @@ class _CreateThreadScreenState extends State<CreateThreadScreen> {
 
   // --- Fix para la subida y el error Object-Not-Found ---
   Future<void> _publicarHilo() async {
-    if (_textoController.text.trim().isEmpty && _imagenAdjuntaFile == null && _webImage == null) return;
-    setState(() => _isPublishing = true);
+  final String texto = _textoController.text.trim();
+  
+  // 1. Verificamos si realmente hay un archivo seleccionado
+  final bool tieneImagen = _imagenAdjuntaFile != null;
 
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        String imagenUrl = "";
-        
-        if (_imagenAdjuntaFile != null || _webImage != null) {
-          String fileName = "hilo_${DateTime.now().millisecondsSinceEpoch}.jpg";
-          Reference ref = FirebaseStorage.instance.ref().child('hilos').child(fileName);
-          
-          UploadTask uploadTask;
-          if (kIsWeb) {
-            uploadTask = ref.putData(_webImage!);
-          } else {
-            uploadTask = ref.putFile(_imagenAdjuntaFile!);
-          }
+  print("DEBUG: ¿Hay texto?: ${texto.isNotEmpty}");
+  print("DEBUG: ¿Hay archivo de imagen?: $tieneImagen");
 
-          // Esperamos a que la subida termine ANTES de pedir la URL
-          TaskSnapshot snapshot = await uploadTask;
-          imagenUrl = await snapshot.ref.getDownloadURL();
-        }
+  // 2. LA VALIDACIÓN: Si ambas están vacías, lanzamos el error
+  if (texto.isEmpty && !tieneImagen) {
+    _notificar("No puedes publicar un hilo vacío. Escribe algo o sube una foto.");
+    return;
+  }
 
-        await FirebaseFirestore.instance.collection('hilos').add({
-          'autorId': user.uid,
-          'autorNombre': _miNombre,
-          'autorFoto': _miFotoPerfil,
-          'texto': _textoController.text.trim(),
-          'imagenAdjunta': imagenUrl, 
-          'fecha': FieldValue.serverTimestamp(),
-          'likedBy': [],
-        });
+  setState(() => _isPublishing = true);
 
-        if (mounted) Navigator.pop(context, true);
-      }
-    } catch (e) {
-      debugPrint("Error: $e");
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
-    } finally {
-      if (mounted) setState(() => _isPublishing = false);
+  try {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) throw "Debes iniciar sesión";
+
+    String imagenUrlFinal = "";
+
+    // 3. PROCESO DE SUBIDA
+    if (tieneImagen) {
+      print("DEBUG: Iniciando subida a Storage...");
+      
+      // Creamos un nombre único para la foto
+      String fileName = "hilo_${user.uid}_${DateTime.now().millisecondsSinceEpoch}.jpg";
+      Reference storageRef = FirebaseStorage.instance.ref().child('hilos').child(fileName);
+      
+      // Subida con timeout de 1 minuto por si el internet de Zaruma está lento
+      UploadTask uploadTask = storageRef.putFile(_imagenAdjuntaFile!);
+      TaskSnapshot snapshot = await uploadTask.timeout(const Duration(seconds: 60));
+      
+      imagenUrlFinal = await snapshot.ref.getDownloadURL();
+      print("DEBUG: Imagen subida con éxito: $imagenUrlFinal");
+    }
+
+    // 4. GUARDAR EN FIRESTORE
+    await FirebaseFirestore.instance.collection('hilos').add({
+      'autorId': user.uid,
+      'autorNombre': _miNombre,
+      'autorFoto': _miFotoPerfil, 
+      'texto': texto,
+      'imagenAdjunta': imagenUrlFinal, // Aquí se guarda el LINK
+      'fecha': FieldValue.serverTimestamp(),
+      'likes': 0,
+      'likedBy': [],
+    });
+
+    if (mounted) Navigator.pop(context, true); 
+
+  } catch (e) {
+    print("DEBUG: ERROR FATAL: $e");
+    _notificar("Ocurrió un error: $e");
+  } finally {
+    if (mounted) setState(() => _isPublishing = false);
+  }
+}
+
+  void _notificar(String msj) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(msj),
+          backgroundColor: const Color(0xFF111827), // Tu color Navy oficial
+        ),
+      );
     }
   }
+
+  // Pequeña función de apoyo para avisos rápidos
+  
 
   ImageProvider _obtenerImagenInteligente(String imageData) {
     if (imageData.startsWith('http')) return CachedNetworkImageProvider(imageData);
