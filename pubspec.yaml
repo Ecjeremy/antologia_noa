@@ -19,7 +19,7 @@ dependencies:
   intl: ^0.20.2
   share_plus: ^7.2.2
   cached_network_image: ^3.4.1
-  flutter_windowmanager: ^0.2.0
+  
 
 dev_dependencies:
   flutter_test:
